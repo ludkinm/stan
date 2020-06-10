@@ -584,7 +584,7 @@ class model_base : public prob_grad {
                            bool include_tparams = true, bool include_gqs = true,
                            std::ostream* msgs = 0) const = 0;
 
-  virtual void print_profiler() { }
+  virtual void get_profilers(stan::math::profilers& p) { }
 };
 
 }  // namespace model
