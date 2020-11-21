@@ -50,7 +50,9 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
 
   base_aaps(const Model& model, BaseRNG& rng)
       : base_hmc<Model, Hamiltonian, Integrator, BaseRNG>(model, rng),
-        path_length_(0),
+        path_fwd_length_(0),
+        path_bck_length_(0),
+        index_(0),
         energy_(0) {}
 
   /**
@@ -59,7 +61,9 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
   base_aaps(const Model& model, BaseRNG& rng, Eigen::VectorXd& inv_e_metric)
       : base_hmc<Model, Hamiltonian, Integrator, BaseRNG>(model, rng,
                                                           inv_e_metric),
-        path_length_(0),
+        path_fwd_length_(0),
+        path_bck_length_(0),
+        index_(0),
         energy_(0) {}
 
   /**
@@ -68,7 +72,9 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
   base_aaps(const Model& model, BaseRNG& rng, Eigen::MatrixXd& inv_e_metric)
       : base_hmc<Model, Hamiltonian, Integrator, BaseRNG>(model, rng,
                                                           inv_e_metric),
-        path_length_(0),
+        path_fwd_length_(0),
+        path_bck_length_(0),
+        index_(0),
         energy_(0) {}
 
   ~base_aaps() {}
@@ -83,28 +89,22 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
 
   enum Direction { backwards, forwards };
 
-  void sample_from_path(PointType& z_propose, double& p_propose,
-                        std::vector<PointType>& path, double& total_ps,
-                        callbacks::logger& logger) {
+  int sample_from_path(PointType& z_propose, double& p_propose,
+                       std::vector<PointType>& path, double& total_ps,
+                       callbacks::logger& logger) {
     // if this function is called, we know path is non-empty
     // storage for exp(-Hs)
-    logger.info("sample_from_path");
-    logger.info("about to make vector of rhos");
     std::vector<double> rhos(path.size());
-    logger.info("about to calculate the hamiltonian for each point in path");
     // go along path and calculate exp(-hamiltonian)
     std::transform(
         path.begin(), path.end(), rhos.begin(),
         [this](PointType& z) { return exp(-this->hamiltonian_.H(z)); });
     // annoyingly non const!
     // cum_sum(rhos)
-    logger.info("about to cum sum");
     std::partial_sum(rhos.begin(), rhos.end(), rhos.begin(), std::plus<>());
     // find the first rho for which rho/max_rho < Unif(0,1)
     // sample a point
-    logger.info("about to get rhos.back");
     total_ps = rhos.back();
-    logger.info("about to sample from rand_uniform_");
     double u = this->rand_uniform_();
     logger.info("got u = ");
     logger.info(std::to_string(u));
@@ -119,6 +119,7 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
     z_propose = path.at(index);
     logger.info("about to set p_propose");
     p_propose = rhos.at(index);
+    return index;
   }
 
   void build_path(Direction dir, PointType& z, std::vector<PointType>& path,
@@ -161,29 +162,28 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
     // build paths
     build_path(Direction::forwards, z_fwd, path_fwd, logger);
     build_path(Direction::backwards, z_bck, path_bck, logger);
-
-    std::stringstream ss;
-    ss << "about to sample from paths. Sizes are f = " << path_fwd.size()
-       << " b = " << path_bck.size();
-    logger.info(ss);
+    this->path_fwd_length_ = path_fwd.size();
+    this->path_bck_length_ = path_bck.size();
     double accept_prob = 0.0;
-    if (path_fwd.size() == 0 && path_bck.size() == 0) {
+    if (this->path_fwd_length_ == 0 && this->path_bck_length_ == 0) {
       logger.info("case: both emtpty!");
       // didn't move
-    } else if (path_bck.size() == 0) {
+    } else if (this->path_bck_length_ == 0) {
       logger.info("case: path_bck is empty!");
       // back path is non-empty
       double p_fwd{0.0};
       double fwd_total_p{0.0};
-      sample_from_path(z_fwd, p_fwd, path_fwd, fwd_total_p, logger);
+      this->index_
+          = 1 + sample_from_path(z_fwd, p_fwd, path_fwd, fwd_total_p, logger);
       this->z_ = z_fwd;
       accept_prob = p_fwd / fwd_total_p;
-    } else if (path_fwd.size() == 0) {
+    } else if (this->path_fwd_length_ == 0) {
       logger.info("case: path_fwd is empty!");
       // back path is non-empty
       double p_bck{0.0};
       double bck_total_p{0.0};
-      sample_from_path(z_bck, p_bck, path_bck, bck_total_p, logger);
+      this->index_
+          = -1 - sample_from_path(z_bck, p_bck, path_bck, bck_total_p, logger);
       this->z_ = z_bck;
       accept_prob = p_bck / bck_total_p;
     } else {
@@ -193,19 +193,22 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
       double p_bck{0.0};
       double fwd_total_p{0.0};
       double bck_total_p{0.0};
-      sample_from_path(z_fwd, p_fwd, path_fwd, fwd_total_p, logger);
-      sample_from_path(z_bck, p_bck, path_bck, bck_total_p, logger);
+      int ind_fwd
+          = sample_from_path(z_fwd, p_fwd, path_fwd, fwd_total_p, logger);
+      int ind_bck
+          = sample_from_path(z_bck, p_bck, path_bck, bck_total_p, logger);
       // then choose between them proportional to the relative
       // total probability on their paths
       accept_prob = fwd_total_p / (fwd_total_p + bck_total_p);
       if (accept_prob < 1 && this->rand_uniform_() > accept_prob) {
         this->z_ = z_fwd;
+        this->index_ = 1 + ind_fwd;
       } else {
         this->z_ = z_bck;
+        this->index_ = 1 + ind_bck;
       }
     }
     logger.info("setting infos");
-    this->path_length_ = path_fwd.size() + path_bck.size();
     // store energy for the sampled point
     this->energy_ = this->hamiltonian_.H(this->z_);
     logger.info("returning");
@@ -215,18 +218,24 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
 
   void get_sampler_param_names(std::vector<std::string>& names) {
     names.push_back("stepsize__");
-    names.push_back("pathlength__");
+    names.push_back("bckpathlength__");
+    names.push_back("fwdpathlength__");
+    names.push_back("index__");
     names.push_back("energy__");
   }
 
   void get_sampler_params(std::vector<double>& values) {
     values.push_back(this->epsilon_);
-    values.push_back(this->path_length_);
+    values.push_back(this->path_fwd_length_);
+    values.push_back(this->path_bck_length_);
+    values.push_back(this->index_);
     values.push_back(this->energy_);
   }
 
  private:
-  int path_length_;
+  int path_fwd_length_;
+  int path_bck_length_;
+  int index_;
   double energy_;
 };
 
