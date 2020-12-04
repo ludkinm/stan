@@ -2,6 +2,8 @@
 #define STAN_MCMC_HMC_AAPS_BASE_AAPS_HPP
 
 #include <iterator>
+#include <numeric>
+#include <sstream>
 #include <stan/callbacks/logger.hpp>
 #include <stan/math/prim.hpp>
 #include <stan/mcmc/hmc/base_hmc.hpp>
@@ -14,25 +16,76 @@
 
 namespace stan {
 namespace mcmc {
+namespace aaps_details {
+// numerically stable conversion of a vector (x_i)
+// to vector with element i = log(sum_{j=1}^i exp(x_j))
+void log_cum_sum_exp(std::vector<double>& x) {
+  // find max of whole vector
+  double max = *std::max_element(x.begin(), x.end());
+  // convert to x[i] = exp(x[i]  - max)
+  std::transform(x.begin(), x.end(), x.begin(),
+                 [max](double i) { return exp(i - max); });
+  // convert to x[i] = sum(x[0:i])
+  std::partial_sum(x.begin(), x.end(), x.begin());
+  // convert to x[i] = max + log(sum(x[i]))
+  std::transform(x.begin(), x.end(), x.begin(),
+                 [max](double i) { return max + log(i); });
+}
+}  // namespace aaps_details
+
+void print(std::string const& header, std::vector<double> const& vec,
+           callbacks::logger& logger) {
+  std::stringstream ss;
+  ss << header;
+  std::for_each(vec.begin(), vec.end(), [&ss](double r) { ss << r << ' '; });
+  logger.info(ss);
+}
+
+void print(std::string const& header, Eigen::VectorXd const& vec,
+           callbacks::logger& logger) {
+  std::stringstream ss;
+  ss << header;
+  for (std::size_t i{0}; i < vec.size(); ++i)
+    ss << vec[i] << ' ';
+  logger.info(ss);
+}
 
 template <class Hamiltonian>
 class aaps_position_leapfrog {
  public:
   bool evolve(typename Hamiltonian::PointType& z, Hamiltonian& hamiltonian,
               const double epsilon, callbacks::logger& logger) {
-    // update position
+    logger.info("evolve begin");
+    print("z.q=", z.q, logger);
+    print("z.p=", z.p, logger);
+
+    logger.info("update position");
     z.q += 0.5 * epsilon * hamiltonian.dtau_dp(z);
     hamiltonian.update_potential_gradient(z, logger);
+    print("z.q=", z.q, logger);
 
-    // momenta
+    logger.info("get gradient");
     Eigen::VectorXd g = hamiltonian.dphi_dq(z, logger);
     double pre_angle = g.dot(z.p);
+
+    print("g=", g, logger);
+    print("z.p=", z.p, logger);
+    logger.info("pre_angle = " + std::to_string(pre_angle));
+
+    logger.info("update momenta");
     z.p -= epsilon * g;
     double post_angle = g.dot(z.p);
 
-    // update position
+    print("z.p=", z.p, logger);
+    logger.info("post_angle = " + std::to_string(post_angle));
+
+    logger.info("update position");
     z.q += 0.5 * epsilon * hamiltonian.dtau_dp(z);
     hamiltonian.update_potential_gradient(z, logger);
+
+    logger.info("evolve end");
+    print("z.q=", z.q, logger);
+    print("z.p=", z.p, logger);
 
     // return true if same sign, i.e. **not** an apogee
     return std::signbit(pre_angle) == std::signbit(post_angle);
@@ -50,8 +103,7 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
 
   base_aaps(const Model& model, BaseRNG& rng)
       : base_hmc<Model, Hamiltonian, Integrator, BaseRNG>(model, rng),
-        path_fwd_length_(0),
-        path_bck_length_(0),
+        path_length_(0),
         index_(0),
         energy_(0) {}
 
@@ -61,8 +113,7 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
   base_aaps(const Model& model, BaseRNG& rng, Eigen::VectorXd& inv_e_metric)
       : base_hmc<Model, Hamiltonian, Integrator, BaseRNG>(model, rng,
                                                           inv_e_metric),
-        path_fwd_length_(0),
-        path_bck_length_(0),
+        path_length_(0),
         index_(0),
         energy_(0) {}
 
@@ -72,8 +123,7 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
   base_aaps(const Model& model, BaseRNG& rng, Eigen::MatrixXd& inv_e_metric)
       : base_hmc<Model, Hamiltonian, Integrator, BaseRNG>(model, rng,
                                                           inv_e_metric),
-        path_fwd_length_(0),
-        path_bck_length_(0),
+        path_length_(0),
         index_(0),
         energy_(0) {}
 
@@ -87,61 +137,76 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
     this->z_.set_metric(inv_e_metric);
   }
 
-  enum Direction { backwards, forwards };
-
-  int sample_from_path(PointType& z_propose, double& p_propose,
-                       std::vector<PointType>& path, double& total_ps,
-                       callbacks::logger& logger) {
-    // if this function is called, we know path is non-empty
-    // storage for exp(-Hs)
-    std::vector<double> rhos(path.size());
-    // go along path and calculate exp(-hamiltonian)
-    std::transform(
-        path.begin(), path.end(), rhos.begin(),
-        [this](PointType& z) { return exp(-this->hamiltonian_.H(z)); });
-    // annoyingly non const!
-    // cum_sum(rhos)
-    std::partial_sum(rhos.begin(), rhos.end(), rhos.begin(), std::plus<>());
-    // find the first rho for which rho/max_rho < Unif(0,1)
-    // sample a point
-    total_ps = rhos.back();
-    double u = this->rand_uniform_();
-    logger.info("got u = ");
-    logger.info(std::to_string(u));
-    logger.info("about to find_if the first time rho/total_rho is less than u");
-    auto it = std::find_if(rhos.begin(), rhos.end(), [u, total_ps](double r) {
-      return u < r / total_ps;
-    });
-    logger.info("about to get distance between that position and rhos.begin()");
-    std::size_t index = std::distance(rhos.begin(), it);
-    logger.info("about to set z_propose to index = ");
-    logger.info(std::to_string(index));
+  std::size_t sample_from_path(PointType& z_propose, double& log_propose_energy,
+                               std::vector<PointType>& path,
+                               callbacks::logger& logger) {
+    logger.info("~~sample_from_path~~");
+    std::vector<double> log_rhos(path.size());
+    print("set log_rhos to vector of 0s:", log_rhos, logger);
+    logger.info("calculating log_rho = negative hamiltonian at each point");
+    std::transform(path.begin(), path.end(), log_rhos.begin(),
+                   [this](PointType& z) { return -this->hamiltonian_.H(z); });
+    print("log_rhos=", log_rhos, logger);
+    logger.info("converting rhos to log_cum_sum_exp(log_rhos)");
+    aaps_details::log_cum_sum_exp(log_rhos);
+    print("log_cum_sum_exp(log_rhos)=", log_rhos, logger);
+    logger.info("sampling log_u");
+    double log_u = log(this->rand_uniform_());
+    logger.info("got log_u = " + std::to_string(log_u));
+    log_u += log_rhos.back();
+    logger.info("got log_sum_rhos + log_u = " + std::to_string(log_u));
+    logger.info(
+        "find_if'ing first element: in u + log_sum_exp(-Hs) + log_u < "
+        "log_cum_sum(-Hs)");
+    auto it = std::find_if(log_rhos.begin(), log_rhos.end(),
+                           [log_u](double r) { return log_u < r; });
+    logger.info("got *it = " + std::to_string(*it));
+    logger.info("finding index based on this iterator");
+    std::size_t index = std::distance(log_rhos.begin(), it);
+    logger.info("about to set z_propose to index = " + std::to_string(index));
     z_propose = path.at(index);
-    logger.info("about to set p_propose");
-    p_propose = rhos.at(index);
+    logger.info("about to set log_rho_propose");
+    log_propose_energy = -log_rhos.at(index);
     return index;
   }
 
-  void build_path(Direction dir, PointType& z, std::vector<PointType>& path,
-                  callbacks::logger& logger) {
-    // samples a point from the `dir`-path starting as z.
-    // returns the proposal in `z_propose`
-    // returns the sum_{z in dir-path} exp(-H(z)) in `sum_rho`
-    double eps = ((dir == Direction::forwards) ? 1 : -1) * this->epsilon_;
-
-    // build upto first apogee
+  std::size_t build_path(PointType& z, std::vector<PointType>& path,
+                         callbacks::logger& logger) {
+    // makes path of points -B, -B+1, ..., -1, 0, 1,..., F-1, F
+    // where 0 is the input state z
+    // B and F are the points just before an apogge going backwards/forwards
+    // resp.
+    logger.info("~~build_path~~");
     bool not_apogee{true};
-    do {
-      not_apogee = this->integrator_.evolve(z, this->hamiltonian_, eps, logger);
+    do {  // backwards
       path.push_back(z);
+      not_apogee = this->integrator_.evolve(z, this->hamiltonian_,
+                                            -this->epsilon_, logger);
     } while (not_apogee);
+    // reorder so its -B, -B+1, ... -1, 0
+    std::size_t bck_length{path.size()};
+    std::reverse(std::begin(path), std::end(path));
+    logger.info("backwards length = " + std::to_string(bck_length));
+    // move z back to start point
+    z = path[0];
+    not_apogee = not_apogee = this->integrator_.evolve(z, this->hamiltonian_,
+                                                       this->epsilon_, logger);
+    while (not_apogee) {
+      path.push_back(z);
+      not_apogee = this->integrator_.evolve(z, this->hamiltonian_,
+                                            this->epsilon_, logger);
+    }
+    logger.info("forwards length = "
+                + std::to_string(path.size() - bck_length));
+    return bck_length;
   }
 
   sample transition(sample& init_sample, callbacks::logger& logger) {
-    logger.info("Made it to AAPS transition");
+    logger.info("\n\n~aaps::transition~");
     // Initialize the algoritm
     this->sample_stepsize();
 
+    print("init_sample.cont_params() = ", init_sample.cont_params(), logger);
     // this sets this->z.q to the continuous parameters in init_sample
     this->seed(init_sample.cont_params());
 
@@ -151,93 +216,41 @@ class base_aaps : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
     // log stuff to logger
     this->hamiltonian_.init(this->z_, logger);
 
-    logger.info("about to init paths");
     // init paths
-    PointType z_fwd(this->z_);  // State at forward end of trajectory
-    PointType z_bck(z_fwd);     // State at backward end of trajectory
-    std::vector<PointType> path_fwd;
-    std::vector<PointType> path_bck;
+    logger.info("about to build path");
+    std::vector<PointType> path;
+    std::size_t bck_length = build_path(this->z_, path, logger);
+    this->path_length_ = path.size();
+    this->index_ = 1 + sample_from_path(this->z_, this->energy_, path, logger)
+                   - bck_length;
 
-    logger.info("about to build paths");
-    // build paths
-    build_path(Direction::forwards, z_fwd, path_fwd, logger);
-    build_path(Direction::backwards, z_bck, path_bck, logger);
-    this->path_fwd_length_ = path_fwd.size();
-    this->path_bck_length_ = path_bck.size();
-    double accept_prob = 0.0;
-    if (this->path_fwd_length_ == 0 && this->path_bck_length_ == 0) {
-      logger.info("case: both emtpty!");
-      // didn't move
-    } else if (this->path_bck_length_ == 0) {
-      logger.info("case: path_bck is empty!");
-      // back path is non-empty
-      double p_fwd{0.0};
-      double fwd_total_p{0.0};
-      this->index_
-          = 1 + sample_from_path(z_fwd, p_fwd, path_fwd, fwd_total_p, logger);
-      this->z_ = z_fwd;
-      accept_prob = p_fwd / fwd_total_p;
-    } else if (this->path_fwd_length_ == 0) {
-      logger.info("case: path_fwd is empty!");
-      // back path is non-empty
-      double p_bck{0.0};
-      double bck_total_p{0.0};
-      this->index_
-          = -1 - sample_from_path(z_bck, p_bck, path_bck, bck_total_p, logger);
-      this->z_ = z_bck;
-      accept_prob = p_bck / bck_total_p;
-    } else {
-      logger.info("case: neither path is empty!");
-      // sample a point on each path...
-      double p_fwd{0.0};
-      double p_bck{0.0};
-      double fwd_total_p{0.0};
-      double bck_total_p{0.0};
-      int ind_fwd
-          = sample_from_path(z_fwd, p_fwd, path_fwd, fwd_total_p, logger);
-      int ind_bck
-          = sample_from_path(z_bck, p_bck, path_bck, bck_total_p, logger);
-      // then choose between them proportional to the relative
-      // total probability on their paths
-      accept_prob = fwd_total_p / (fwd_total_p + bck_total_p);
-      if (accept_prob < 1 && this->rand_uniform_() > accept_prob) {
-        this->z_ = z_fwd;
-        this->index_ = 1 + ind_fwd;
-      } else {
-        this->z_ = z_bck;
-        this->index_ = 1 + ind_bck;
-      }
-    }
     logger.info("setting infos");
     // store energy for the sampled point
     this->energy_ = this->hamiltonian_.H(this->z_);
     logger.info("returning");
     // return sampled point, with logpi and
-    return sample(this->z_.q, -this->hamiltonian_.V(this->z_), accept_prob);
+    return sample(this->z_.q, -this->hamiltonian_.V(this->z_), 1.0);
   }
 
   void get_sampler_param_names(std::vector<std::string>& names) {
     names.push_back("stepsize__");
-    names.push_back("bckpathlength__");
-    names.push_back("fwdpathlength__");
+    names.push_back("pathlength__");
     names.push_back("index__");
     names.push_back("energy__");
   }
 
   void get_sampler_params(std::vector<double>& values) {
     values.push_back(this->epsilon_);
-    values.push_back(this->path_fwd_length_);
-    values.push_back(this->path_bck_length_);
+    values.push_back(this->path_length_);
     values.push_back(this->index_);
     values.push_back(this->energy_);
   }
 
  private:
-  int path_fwd_length_;
-  int path_bck_length_;
+  int path_length_;
   int index_;
   double energy_;
-};
+};  // namespace mcmc
 
 }  // namespace mcmc
 }  // namespace stan
