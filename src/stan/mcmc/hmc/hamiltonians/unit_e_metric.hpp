@@ -36,6 +36,10 @@ class unit_e_metric : public base_hamiltonian<Model, unit_e_point, BaseRNG> {
     return z.g;
   }
 
+  Eigen::VectorXd metric_times_grad(unit_e_point& z, callbacks::logger& logger) override {
+    return z.g;
+  }
+  
   void sample_p(unit_e_point& z, BaseRNG& rng) {
     boost::variate_generator<BaseRNG&, boost::normal_distribution<> >
         rand_unit_gaus(rng, boost::normal_distribution<>());

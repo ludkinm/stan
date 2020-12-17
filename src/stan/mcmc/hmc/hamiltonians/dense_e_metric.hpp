@@ -40,6 +40,11 @@ class dense_e_metric : public base_hamiltonian<Model, dense_e_point, BaseRNG> {
     return z.g;
   }
 
+  Eigen::VectorXd metric_times_grad(dense_e_point& z, callbacks::logger& logger) override {
+    return z.inv_e_metric_.colPivHouseholderQr().solve(z.g);
+  }
+
+  
   void sample_p(dense_e_point& z, BaseRNG& rng) {
     typedef typename stan::math::index_type<Eigen::VectorXd>::type idx_t;
     boost::variate_generator<BaseRNG&, boost::normal_distribution<> >

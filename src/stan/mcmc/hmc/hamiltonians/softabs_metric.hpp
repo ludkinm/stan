@@ -82,6 +82,13 @@ class softabs_metric : public base_hamiltonian<Model, softabs_point, BaseRNG> {
     return -0.5 * a + z.g;
   }
 
+  Eigen::VectorXd metric_times_grad(softabs_point& z, callbacks::logger& logger) override {
+    return z.eigen_deco.eigenvectors()
+           * z.softabs_lambda.cwiseProduct(
+                 z.eigen_deco.eigenvectors().transpose() * z.g);
+  }
+
+  
   void sample_p(softabs_point& z, BaseRNG& rng) {
     boost::variate_generator<BaseRNG&, boost::normal_distribution<> >
         rand_unit_gaus(rng, boost::normal_distribution<>());

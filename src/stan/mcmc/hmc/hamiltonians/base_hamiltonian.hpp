@@ -43,6 +43,10 @@ class base_hamiltonian {
   // phi = 0.5 * log | Lambda (q) | + V(q)
   virtual Eigen::VectorXd dphi_dq(Point& z, callbacks::logger& logger) = 0;
 
+
+  virtual Eigen::VectorXd metric_times_grad(Point& z, callbacks::logger& logger) = 0;
+
+  
   virtual void sample_p(Point& z, BaseRNG& rng) = 0;
 
   void init(Point& z, callbacks::logger& logger) {
@@ -69,6 +73,8 @@ class base_hamiltonian {
     z.g = -z.g;
   }
 
+  
+  
   void update_metric(Point& z, callbacks::logger& logger) {}
 
   void update_metric_gradient(Point& z, callbacks::logger& logger) {}

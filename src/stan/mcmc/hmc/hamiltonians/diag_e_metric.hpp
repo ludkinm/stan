@@ -41,6 +41,10 @@ class diag_e_metric : public base_hamiltonian<Model, diag_e_point, BaseRNG> {
     return z.g;
   }
 
+  Eigen::VectorXd metric_times_grad(diag_e_point& z, callbacks::logger& logger) override {
+    return z.g.cwiseQuotient(z.inv_e_metric_);
+  }
+
   void sample_p(diag_e_point& z, BaseRNG& rng) {
     boost::variate_generator<BaseRNG&, boost::normal_distribution<> >
         rand_diag_gaus(rng, boost::normal_distribution<>());
