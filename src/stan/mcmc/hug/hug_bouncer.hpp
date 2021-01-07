@@ -15,15 +15,14 @@ class hug_bouncer : public base_integrator<Hamiltonian> {
 
   void evolve(typename Hamiltonian::PointType& z, Hamiltonian& hamiltonian,
               const double epsilon, callbacks::logger& logger) {
-    logger.info("hug_bouncer::evolve begin");
     // step in q
-    z.q -= epsilon * hamiltonian.dtau_dp(z);
+    z.q -= epsilon * z.p;
     hamiltonian.update_potential_gradient(z, logger);
     // reflect through gradient
-    const Eigen::VectorXd g = hamiltonian.dphi_dq(z, logger);
-    z.p -= 2 * g.dot(z.p) / g.dot(g) * g;
+    const Eigen::VectorXd Sg = hamiltonian.metric_times_grad(z, logger);
+    z.p -= 2 * z.g.dot(z.p) / z.g.dot(Sg) * Sg;
     // step in q, again, update the gradient to be safe
-    z.q -= epsilon * hamiltonian.dtau_dp(z);
+    z.q -= epsilon * z.p;
     hamiltonian.update_potential_gradient(z, logger);
   }
 };

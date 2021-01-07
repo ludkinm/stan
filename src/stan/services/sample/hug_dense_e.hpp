@@ -20,29 +20,7 @@ namespace sample {
 /**
  * Runs Hug without adaptation using dense Euclidean metric
  * with a pre-specified Euclidean metric.
- *
- * @tparam Model Model class
- * @param[in] model Input model to test (with data already instantiated)
- * @param[in] init var context for initialization
- * @param[in] init_inv_metric var context exposing an initial diagonal
-              inverse Euclidean metric (must be positive definite)
- * @param[in] random_seed random seed for the random number generator
- * @param[in] chain chain id to advance the pseudo random number generator
- * @param[in] init_radius radius to initialize
- * @param[in] num_warmup Number of warmup samples
- * @param[in] num_samples Number of samples
- * @param[in] num_thin Number to thin the samples
- * @param[in] save_warmup Indicates whether to save the warmup iterations
- * @param[in] refresh Controls the output
- * @param[in] stepsize initial stepsize for discrete evolution
- * @param[in] stepsize_jitter uniform random jitter of stepsize
- * @param[in] int_time integration time
- * @param[in,out] interrupt Callback for interrupts
- * @param[in,out] logger Logger for messages
- * @param[in,out] init_writer Writer callback for unconstrained inits
- * @param[in,out] sample_writer Writer for draws
- * @param[in,out] diagnostic_writer Writer for diagnostic information
- * @return error_codes::OK if successful
+ *---- Note this uses the inverse of HMC's metric----
  */
 template <class Model>
 int hug_dense_e(Model& model, const stan::io::var_context& init,

@@ -1,5 +1,5 @@
-#ifndef STAN_SERVICES_SAMPLE_HOP_DIAG_E_HPP
-#define STAN_SERVICES_SAMPLE_HOP_DIAG_E_HPP
+#ifndef STAN_SERVICES_SAMPLE_HOP_DIAG_E_ADAPT_HPP
+#define STAN_SERVICES_SAMPLE_HOP_DIAG_E_ADAPT_HPP
 
 #include <stan/callbacks/interrupt.hpp>
 #include <stan/callbacks/logger.hpp>
@@ -7,13 +7,12 @@
 #include <stan/io/var_context.hpp>
 #include <stan/math/prim.hpp>
 #include <stan/mcmc/fixed_param_sampler.hpp>
-#include <stan/mcmc/hop/diag_e_hop.hpp>
+#include <stan/mcmc/hop/adapt_diag_e_hop.hpp>
 #include <stan/services/error_codes.hpp>
-#include <stan/services/util/run_sampler.hpp>
+#include <stan/services/util/run_adaptive_sampler.hpp>
 #include <stan/services/util/create_rng.hpp>
 #include <stan/services/util/initialize.hpp>
 #include <stan/services/util/inv_metric.hpp>
-
 #include <vector>
 
 namespace stan {
@@ -21,7 +20,7 @@ namespace services {
 namespace sample {
 
 /**
- * Runs static Hop without adaptation using diagonal Euclidean metric
+ * Runs static Hop with adaptation using diagonal Euclidean metric
  * with a pre-specified Euclidean metric.
  *
  * @tparam Model Model class
@@ -37,9 +36,14 @@ namespace sample {
  * @param[in] num_thin Number to thin the samples
  * @param[in] save_warmup Indicates whether to save the warmup iterations
  * @param[in] refresh Controls the output
- * @param[in] stepsize initial stepsize for discrete evolution
- * @param[in] stepsize_jitter uniform random jitter of stepsize
  * @param[in] int_time integration time
+ * @param[in] delta adaptation target acceptance statistic
+ * @param[in] gamma adaptation regularization scale
+ * @param[in] kappa adaptation relaxation exponent
+ * @param[in] t0 adaptation iteration offset
+ * @param[in] init_buffer width of initial fast adaptation interval
+ * @param[in] term_buffer width of final fast adaptation interval
+ * @param[in] window initial width of slow adaptation interval
  * @param[in,out] interrupt Callback for interrupts
  * @param[in,out] logger Logger for messages
  * @param[in,out] init_writer Writer callback for unconstrained inits
@@ -48,15 +52,17 @@ namespace sample {
  * @return error_codes::OK if successful
  */
 template <class Model>
-int hop_diag_e(Model& model, const stan::io::var_context& init,
-               const stan::io::var_context& init_inv_metric,
-               unsigned int random_seed, unsigned int chain, double init_radius,
-               int num_warmup, int num_samples, int num_thin, bool save_warmup,
-               int refresh, double lambda, double kappa,
-               callbacks::interrupt& interrupt,
-               callbacks::logger& logger, callbacks::writer& init_writer,
-               callbacks::writer& sample_writer,
-               callbacks::writer& diagnostic_writer) {
+int hop_diag_e_adapt(
+    Model& model, const stan::io::var_context& init,
+    const stan::io::var_context& init_inv_metric, unsigned int random_seed,
+    unsigned int chain, double init_radius, int num_warmup, int num_samples,
+    int num_thin, bool save_warmup, int refresh,
+    double lambda, double kap,
+    double delta, double gamma, double kappa, double t0,
+    unsigned int init_buffer, unsigned int term_buffer, unsigned int window,
+    callbacks::interrupt& interrupt,
+    callbacks::logger& logger, callbacks::writer& init_writer,
+    callbacks::writer& sample_writer, callbacks::writer& diagnostic_writer) {
   boost::ecuyer1988 rng = util::create_rng(random_seed, chain);
 
   std::vector<int> disc_vector;
@@ -72,20 +78,29 @@ int hop_diag_e(Model& model, const stan::io::var_context& init,
     return error_codes::CONFIG;
   }
 
-  stan::mcmc::diag_e_hop<Model, boost::ecuyer1988> sampler(model, rng);
+  stan::mcmc::adapt_diag_e_hop<Model, boost::ecuyer1988> sampler(model, rng);
 
   sampler.set_metric(inv_metric);
-  sampler.set_lambda_kappa(lambda, kappa);
+  sampler.set_lambda_kappa(lambda, kap);
 
-  util::run_sampler(sampler, model, cont_vector, num_warmup, num_samples,
-                    num_thin, refresh, save_warmup, rng, interrupt, logger,
-                    sample_writer, diagnostic_writer);
+  sampler.get_hop_adaptation().set_mu(log(10 * lambda));
+  sampler.get_hop_adaptation().set_delta(delta);
+  sampler.get_hop_adaptation().set_gamma(gamma);
+  sampler.get_hop_adaptation().set_kappa(kappa);
+  sampler.get_hop_adaptation().set_t0(t0);
+
+  sampler.set_window_params(num_warmup, init_buffer, term_buffer, window,
+                            logger);
+
+  util::run_adaptive_sampler(
+      sampler, model, cont_vector, num_warmup, num_samples, num_thin, refresh,
+      save_warmup, rng, interrupt, logger, sample_writer, diagnostic_writer);
 
   return error_codes::OK;
 }
 
 /**
- * Runs static HMC without adaptation using diagonal Euclidean metric.
+ * Runs static HMC with adaptation using diagonal Euclidean metric,
  * with identity matrix as initial inv_metric.
  *
  * @tparam Model Model class
@@ -99,9 +114,13 @@ int hop_diag_e(Model& model, const stan::io::var_context& init,
  * @param[in] num_thin Number to thin the samples
  * @param[in] save_warmup Indicates whether to save the warmup iterations
  * @param[in] refresh Controls the output
- * @param[in] stepsize initial stepsize for discrete evolution
- * @param[in] stepsize_jitter uniform random jitter of stepsize
- * @param[in] int_time integration time
+ * @param[in] delta adaptation target acceptance statistic
+ * @param[in] gamma adaptation regularization scale
+ * @param[in] kappa adaptation relaxation exponent
+ * @param[in] t0 adaptation iteration offset
+ * @param[in] init_buffer width of initial fast adaptation interval
+ * @param[in] term_buffer width of final fast adaptation interval
+ * @param[in] window initial width of slow adaptation interval
  * @param[in,out] interrupt Callback for interrupts
  * @param[in,out] logger Logger for messages
  * @param[in,out] init_writer Writer callback for unconstrained inits
@@ -110,24 +129,24 @@ int hop_diag_e(Model& model, const stan::io::var_context& init,
  * @return error_codes::OK if successful
  */
 template <class Model>
-int hop_diag_e(Model& model, const stan::io::var_context& init,
-               unsigned int random_seed, unsigned int chain, double init_radius,
-               int num_warmup, int num_samples, int num_thin, bool save_warmup,
-               int refresh,
-               double lambda,
-               double kappa,
-               callbacks::interrupt& interrupt,
-               callbacks::logger& logger, callbacks::writer& init_writer,
-               callbacks::writer& sample_writer,
-               callbacks::writer& diagnostic_writer) {
+int hop_diag_e_adapt(
+    Model& model, const stan::io::var_context& init, unsigned int random_seed,
+    unsigned int chain, double init_radius, int num_warmup, int num_samples,
+    int num_thin, bool save_warmup, int refresh, double lambda,
+    double kap, double delta, double gamma,
+    double kappa, double t0, unsigned int init_buffer, unsigned int term_buffer,
+    unsigned int window, callbacks::interrupt& interrupt,
+    callbacks::logger& logger, callbacks::writer& init_writer,
+    callbacks::writer& sample_writer, callbacks::writer& diagnostic_writer) {
   stan::io::dump dmp
       = util::create_unit_e_diag_inv_metric(model.num_params_r());
   stan::io::var_context& unit_e_metric = dmp;
 
-  return hop_diag_e(model, init, unit_e_metric, random_seed, chain, init_radius,
-                    num_warmup, num_samples, num_thin, save_warmup, refresh,
-                    lambda, kappa, interrupt, logger,
-                    init_writer, sample_writer, diagnostic_writer);
+  return hop_diag_e_adapt(
+      model, init, unit_e_metric, random_seed, chain, init_radius, num_warmup,
+      num_samples, num_thin, save_warmup, refresh, lambda, kap,
+      delta, gamma, kappa, t0, init_buffer, term_buffer, window,
+      interrupt, logger, init_writer, sample_writer, diagnostic_writer);
 }
 
 }  // namespace sample
