@@ -32,8 +32,7 @@ namespace sample {
  * @param[in] num_thin Number to thin the samples
  * @param[in] save_warmup Indicates whether to save the warmup iterations
  * @param[in] refresh Controls the output
- * @param[in] lambda initial lambda for hop
- * @param[in] kappa initial kappa for hop
+ * @param[in] gamma initial gamma for hop
  * @param[in] delta adaptation target acceptance statistic
  * @param[in] gamma adaptation regularization scale
  * @param[in] adapt_kappa adaptation relaxation exponent
@@ -49,8 +48,8 @@ template <class Model>
 int hop_unit_e_adapt(
     Model& model, const stan::io::var_context& init, unsigned int random_seed,
     unsigned int chain, double init_radius, int num_warmup, int num_samples,
-    int num_thin, bool save_warmup, int refresh, double lambda,
-    double kappa, double delta, double gamma,
+    int num_thin, bool save_warmup, int refresh, double gam,
+    double delta, double adapt_gamma,
     double adapt_kappa, double t0, callbacks::interrupt& interrupt,
     callbacks::logger& logger, callbacks::writer& init_writer,
     callbacks::writer& sample_writer, callbacks::writer& diagnostic_writer) {
@@ -61,11 +60,11 @@ int hop_unit_e_adapt(
       model, init, rng, init_radius, true, logger, init_writer);
 
   stan::mcmc::adapt_unit_e_hop<Model, boost::ecuyer1988> sampler(model, rng);
-  sampler.set_lambda_kappa(lambda, kappa);
+  sampler.set_gamma(gam);
 
-  sampler.get_hop_adaptation().set_mu(log(10 * lambda));
+  sampler.get_hop_adaptation().set_mu(log(10 * sampler.get_gamma()));
   sampler.get_hop_adaptation().set_delta(delta);
-  sampler.get_hop_adaptation().set_gamma(gamma);
+  sampler.get_hop_adaptation().set_gamma(adapt_gamma);
   sampler.get_hop_adaptation().set_kappa(adapt_kappa);
   sampler.get_hop_adaptation().set_t0(t0);
 

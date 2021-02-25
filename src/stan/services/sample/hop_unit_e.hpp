@@ -49,7 +49,6 @@ int hop_unit_e(Model& model, const stan::io::var_context& init,
                int num_warmup, int num_samples, int num_thin, bool save_warmup,
                int refresh,
                double lambda, 
-               double kappa,
                callbacks::interrupt& interrupt,
                callbacks::logger& logger, callbacks::writer& init_writer,
                callbacks::writer& sample_writer,
@@ -63,7 +62,7 @@ int hop_unit_e(Model& model, const stan::io::var_context& init,
       model, init, rng, init_radius, true, logger, init_writer);
 
   stan::mcmc::unit_e_hop<Model, boost::ecuyer1988> sampler(model, rng);
-  sampler.set_lambda_kappa(lambda, kappa);
+  sampler.set_gamma(lambda);
 
   util::run_sampler(sampler, model, cont_vector, num_warmup, num_samples,
                     num_thin, refresh, save_warmup, rng, interrupt, logger,

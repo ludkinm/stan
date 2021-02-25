@@ -57,8 +57,8 @@ int hop_diag_e_adapt(
     const stan::io::var_context& init_inv_metric, unsigned int random_seed,
     unsigned int chain, double init_radius, int num_warmup, int num_samples,
     int num_thin, bool save_warmup, int refresh,
-    double lambda, double kap,
-    double delta, double gamma, double kappa, double t0,
+    double gamma,
+    double delta, double adapt_gamma, double adapt_kappa, double t0,
     unsigned int init_buffer, unsigned int term_buffer, unsigned int window,
     callbacks::interrupt& interrupt,
     callbacks::logger& logger, callbacks::writer& init_writer,
@@ -81,12 +81,12 @@ int hop_diag_e_adapt(
   stan::mcmc::adapt_diag_e_hop<Model, boost::ecuyer1988> sampler(model, rng);
 
   sampler.set_metric(inv_metric);
-  sampler.set_lambda_kappa(lambda, kap);
+  sampler.set_gamma(gamma);
 
-  sampler.get_hop_adaptation().set_mu(log(10 * lambda));
+  sampler.get_hop_adaptation().set_mu(log(10 * sampler.get_gamma()));
   sampler.get_hop_adaptation().set_delta(delta);
-  sampler.get_hop_adaptation().set_gamma(gamma);
-  sampler.get_hop_adaptation().set_kappa(kappa);
+  sampler.get_hop_adaptation().set_gamma(adapt_gamma);
+  sampler.get_hop_adaptation().set_kappa(adapt_kappa);
   sampler.get_hop_adaptation().set_t0(t0);
 
   sampler.set_window_params(num_warmup, init_buffer, term_buffer, window,
@@ -133,7 +133,7 @@ int hop_diag_e_adapt(
     Model& model, const stan::io::var_context& init, unsigned int random_seed,
     unsigned int chain, double init_radius, int num_warmup, int num_samples,
     int num_thin, bool save_warmup, int refresh, double lambda,
-    double kap, double delta, double gamma,
+ double delta, double gamma,
     double kappa, double t0, unsigned int init_buffer, unsigned int term_buffer,
     unsigned int window, callbacks::interrupt& interrupt,
     callbacks::logger& logger, callbacks::writer& init_writer,
@@ -144,7 +144,7 @@ int hop_diag_e_adapt(
 
   return hop_diag_e_adapt(
       model, init, unit_e_metric, random_seed, chain, init_radius, num_warmup,
-      num_samples, num_thin, save_warmup, refresh, lambda, kap,
+      num_samples, num_thin, save_warmup, refresh, lambda,
       delta, gamma, kappa, t0, init_buffer, term_buffer, window,
       interrupt, logger, init_writer, sample_writer, diagnostic_writer);
 }

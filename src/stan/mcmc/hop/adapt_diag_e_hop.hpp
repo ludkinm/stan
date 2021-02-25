@@ -32,8 +32,8 @@ class adapt_diag_e_hop : public diag_e_hop<Model, BaseRNG>,
 
     // if still adapting adapt lambda and preconditioner
     if (this->adapt_flag_) {
-      this->hop_adaptation_.learn_log_param(this->lambda, s.accept_stat());
-      this->set_lambda_kappa(this->lambda);
+      this->hop_adaptation_.learn_log_param(this->gamma, s.accept_stat());
+      this->set_gamma(this->gamma);
       bool update = this->var_adaptation_.learn_variance(this->z().inv_e_metric_,
                                                          this->z().q);
       if (update) {
@@ -46,8 +46,8 @@ class adapt_diag_e_hop : public diag_e_hop<Model, BaseRNG>,
   
   void disengage_adaptation() {
     base_adapter::disengage_adaptation();
-    this->hop_adaptation_.complete_adaptation(this->lambda);
-    this->set_lambda_kappa(this->lambda);
+    this->hop_adaptation_.complete_adaptation(this->gamma);
+    this->set_gamma(this->gamma);
   }
 };
 

@@ -52,7 +52,7 @@ int hop_diag_e(Model& model, const stan::io::var_context& init,
                const stan::io::var_context& init_inv_metric,
                unsigned int random_seed, unsigned int chain, double init_radius,
                int num_warmup, int num_samples, int num_thin, bool save_warmup,
-               int refresh, double lambda, double kappa,
+               int refresh, double lambda,
                callbacks::interrupt& interrupt,
                callbacks::logger& logger, callbacks::writer& init_writer,
                callbacks::writer& sample_writer,
@@ -75,7 +75,7 @@ int hop_diag_e(Model& model, const stan::io::var_context& init,
   stan::mcmc::diag_e_hop<Model, boost::ecuyer1988> sampler(model, rng);
 
   sampler.set_metric(inv_metric);
-  sampler.set_lambda_kappa(lambda, kappa);
+  sampler.set_gamma(lambda);
 
   util::run_sampler(sampler, model, cont_vector, num_warmup, num_samples,
                     num_thin, refresh, save_warmup, rng, interrupt, logger,
@@ -115,7 +115,6 @@ int hop_diag_e(Model& model, const stan::io::var_context& init,
                int num_warmup, int num_samples, int num_thin, bool save_warmup,
                int refresh,
                double lambda,
-               double kappa,
                callbacks::interrupt& interrupt,
                callbacks::logger& logger, callbacks::writer& init_writer,
                callbacks::writer& sample_writer,
@@ -126,7 +125,7 @@ int hop_diag_e(Model& model, const stan::io::var_context& init,
 
   return hop_diag_e(model, init, unit_e_metric, random_seed, chain, init_radius,
                     num_warmup, num_samples, num_thin, save_warmup, refresh,
-                    lambda, kappa, interrupt, logger,
+                    lambda, interrupt, logger,
                     init_writer, sample_writer, diagnostic_writer);
 }
 

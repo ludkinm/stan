@@ -25,13 +25,12 @@ namespace mcmc {
 
     // Hacks so stan/services/util/run_adaptive_sampler.hpp
     void init_stepsize(callbacks::logger& logger){
-      set_lambda_kappa();
+      set_gamma();
     }
-
     
     void write_sampler_params(callbacks::writer& writer) {
       std::stringstream ss;
-      ss << "(lam,kap,mu,gam) = " << get_lambda() << ',' << get_kappa() << ',' << get_mu() << ',' << get_gamma();
+      ss << "gamma = " << get_gamma();
       writer(ss.str());
     }
 
@@ -53,7 +52,7 @@ namespace mcmc {
         hamiltonian(model),
         rand_int(rng),
         rand_uniform(rand_int) {
-      set_lambda_kappa();
+      set_gamma();
     }
 
     ~base_hop() {}
@@ -85,13 +84,11 @@ namespace mcmc {
       double tau2c = point.g.dot(Sigma_gc);
       double rho2c = tau2c < 1.0 ? 1.0 : tau2c;
       double rhoc = sqrt(rho2c);
-
-      double g_dot_rc = point.g.dot(point.p) / tau2c;
-
+      double g_dot_pc = point.g.dot(point.p) / tau2c;
       double H0 = hamiltonian.H(point) - point.q.size() * log(rhoc);
 
       // new parameter values
-      point.q += mu / rhoc * (point.p + (gamma - 1.0) * g_dot_rc * Sigma_gc);
+      point.q += (point.p + gamma * g_dot_pc * Sigma_gc)/rhoc;
       // update logpi and grad_logpi
       hamiltonian.update_potential_gradient(point, logger);
 
@@ -99,15 +96,12 @@ namespace mcmc {
       Eigen::VectorXd Sigma_gp = hamiltonian.metric_times_grad(point, logger);
       double tau2p = point.g.dot(Sigma_gp);
       double rhop = tau2p < 1.0 ? 1.0 : sqrt(tau2p);
-
-      double g_dot_rp = point.g.dot(point.p) / tau2p;
-
+      double g_dot_pp = point.g.dot(point.p) / tau2p;
       // what would p need to be to have proposed curr_point?
-      point.p= -rhop / rhoc * (point.p + (gamma-1) * g_dot_rc * Sigma_gc + 
-           (1.0/gamma - 1.0) * (g_dot_rc + (gamma - 1.0) * point.g.dot(Sigma_gc) / tau2p * g_dot_rp) * Sigma_gp);
-
+      point.p = rhop / rhoc * (point.p + gamma * g_dot_pc * Sigma_gc - gamma/(gamma+1.0) * (g_dot_pp + gamma * g_dot_pc * point.g.dot(Sigma_gc) / tau2p) * Sigma_gp);
       // proposed Hamiltonian values
       double H1 = hamiltonian.H(point) - point.q.size() * log(rhop);
+      
       alpha = std::exp(H0 - H1);
       // Should we reject and reset point to curr_point?
       if (alpha < 1 && rand_uniform() > alpha) {
@@ -123,16 +117,10 @@ namespace mcmc {
     }
 
     void get_sampler_param_names(std::vector<std::string>& names) {
-      names.push_back("lambda");
-      names.push_back("kappa");
-      names.push_back("mu");
       names.push_back("gamma");
     }
 
     void get_sampler_params(std::vector<double>& values) {
-      values.push_back(lambda);
-      values.push_back(kappa);
-      values.push_back(mu);
       values.push_back(gamma);
     }
 
@@ -149,29 +137,17 @@ namespace mcmc {
       values.push_back(alpha);
     }
 
-    void set_lambda_kappa(double l=10.0, double k=1.0) {
-      lambda = l;
-      kappa = k;
-      mu = sqrt(lambda * kappa);
-      gamma = lambda / mu;
+    void set_gamma(double g = 10.0) {
+      gamma = g;
     }
     
-    double get_mu() const { return mu; }
-
     double get_gamma() const { return gamma; }
-
-    double get_lambda() const { return lambda; }
-
-    double get_kappa() const { return kappa; }
   
   protected:
     PointType point;
     Hamiltonian<Model, BaseRNG> hamiltonian;
     BaseRNG& rand_int;
     boost::uniform_01<BaseRNG&> rand_uniform;
-    double lambda;
-    double kappa;
-    double mu;
     double gamma;
     double tau2;
     double alpha;

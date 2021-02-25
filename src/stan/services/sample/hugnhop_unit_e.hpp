@@ -23,7 +23,7 @@ int hugnhop_unit_e(Model& model, const stan::io::var_context& init,
                    double init_radius, int num_warmup, int num_samples,
                    int num_thin, bool save_warmup, int refresh, double stepsize,
                    double stepsize_jitter, double int_time, double lambda,
-                   double kappa, callbacks::interrupt& interrupt,
+                   callbacks::interrupt& interrupt,
                    callbacks::logger& logger, callbacks::writer& init_writer,
                    callbacks::writer& sample_writer,
                    callbacks::writer& diagnostic_writer) {
@@ -37,7 +37,7 @@ int hugnhop_unit_e(Model& model, const stan::io::var_context& init,
 
   sampler.kernel0.set_nominal_stepsize_and_T(stepsize, int_time);
   sampler.kernel0.set_stepsize_jitter(stepsize_jitter);
-  sampler.kernel1.set_lambda_kappa(lambda, kappa);
+  sampler.kernel1.set_gamma(lambda);
 
   util::run_sampler(sampler, model, cont_vector, num_warmup, num_samples,
                     num_thin, refresh, save_warmup, rng, interrupt, logger,

@@ -20,7 +20,7 @@ class adapt_unit_e_hop : public unit_e_hop<Model, BaseRNG>,
   adapt_unit_e_hop(const Model& model, BaseRNG& rng)
     : unit_e_hop<Model, BaseRNG>(model, rng),
       hop_adapter() {
-    this->hop_adaptation_.set_mu(3); // the target shrinkage for lambda
+    this->hop_adaptation_.set_mu(3); // the target shrinkage for gamma
   }
 
   ~adapt_unit_e_hop() {}
@@ -32,16 +32,16 @@ class adapt_unit_e_hop : public unit_e_hop<Model, BaseRNG>,
 
     // if still adapting adapt lambda and preconditioner
     if (this->adapt_flag_) {
-      this->hop_adaptation_.learn_log_param(this->lambda, s.accept_stat());
-      this->set_lambda_kappa(this->lambda);
+      this->hop_adaptation_.learn_log_param(this->gamma, s.accept_stat());
+      this->set_gamma(this->gamma);
     }
     return s;
   }
   
   void disengage_adaptation() {
     base_adapter::disengage_adaptation();
-    this->hop_adaptation_.complete_adaptation(this->lambda);
-    this->set_lambda_kappa(this->lambda);
+    this->hop_adaptation_.complete_adaptation(this->gamma);
+    this->set_gamma(this->gamma);
   }
 };
 

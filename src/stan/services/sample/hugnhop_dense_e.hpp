@@ -24,7 +24,7 @@ int hugnhop_dense_e(Model& model, const stan::io::var_context& init,
                     double init_radius, int num_warmup, int num_samples,
                     int num_thin, bool save_warmup, int refresh,
                     double stepsize, double stepsize_jitter, double int_time,
-                    double lambda, double kappa,
+                    double lambda,
                     callbacks::interrupt& interrupt, callbacks::logger& logger,
                     callbacks::writer& init_writer,
                     callbacks::writer& sample_writer,
@@ -51,7 +51,7 @@ int hugnhop_dense_e(Model& model, const stan::io::var_context& init,
   sampler.kernel0.set_stepsize_jitter(stepsize_jitter);
 
   sampler.kernel1.set_metric(inv_metric);
-  sampler.kernel1.set_lambda_kappa(lambda, kappa);
+  sampler.kernel1.set_gamma(lambda);
 
   util::run_sampler(sampler, model, cont_vector, num_warmup, num_samples,
                     num_thin, refresh, save_warmup, rng, interrupt, logger,
@@ -66,7 +66,7 @@ int hugnhop_dense_e(Model& model, const stan::io::var_context& init,
                     double init_radius, int num_warmup, int num_samples,
                     int num_thin, bool save_warmup, int refresh,
                     double stepsize, double stepsize_jitter, double int_time,
-                    double lambda, double kappa,
+                    double lambda, 
                     callbacks::interrupt& interrupt, callbacks::logger& logger,
                     callbacks::writer& init_writer,
                     callbacks::writer& sample_writer,
@@ -78,7 +78,7 @@ int hugnhop_dense_e(Model& model, const stan::io::var_context& init,
   return hugnhop_dense_e(model, init, unit_e_metric, random_seed, chain,
                          init_radius, num_warmup, num_samples, num_thin,
                          save_warmup, refresh, stepsize, stepsize_jitter,
-                         int_time, lambda, kappa, interrupt, logger,
+                         int_time, lambda, interrupt, logger,
                          init_writer, sample_writer, diagnostic_writer);
 }
 
